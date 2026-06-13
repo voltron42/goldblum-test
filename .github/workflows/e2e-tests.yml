@@ -1,0 +1,181 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  test-local:
+    name: E2E Tests (Local)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'goldblum-test/package-lock.json'
+
+      - name: Install Playwright dependencies
+        run: |
+          cd goldblum-test
+          npm ci
+          npx playwright install --with-deps
+
+      - name: Run Goldblum Unit Tests
+        run: |
+          cd goldblum
+          lein test
+
+      - name: Run E2E Tests
+        run: |
+          cd goldblum-test
+          npm test
+        env:
+          CI: true
+
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-local
+          path: goldblum-test/playwright-report/
+          retention-days: 7
+
+  test-fly:
+    name: E2E Tests (Production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'goldblum-test/package-lock.json'
+
+      - name: Install Playwright dependencies
+        run: |
+          cd goldblum-test
+          npm ci
+          npx playwright install --with-deps
+
+      - name: Run E2E Tests Against Production
+        run: |
+          cd goldblum-test
+          npm run test:fly
+        env:
+          CI: true
+          BASE_URL: https://goldblum-hello-world.fly.dev
+
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-production
+          path: goldblum-test/playwright-report/
+          retention-days: 7
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test-local
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          cd goldblum
+          docker build -t goldblum:test .
+
+      - name: Test Docker image
+        run: |
+          cd goldblum
+          docker run --rm -p 8080:8080 -d --name goldblum-test goldblum:test
+          sleep 5
+          curl http://localhost:8080/api/health
+          docker stop goldblum-test || true
+
+  deploy-check:
+    name: Check Deployment Readiness
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test-local, build-docker]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify fly.toml exists
+        run: |
+          test -f goldblum/fly.toml || (echo "fly.toml not found" && exit 1)
+
+      - name: Verify Dockerfile exists
+        run: |
+          test -f goldblum/Dockerfile || (echo "Dockerfile not found" && exit 1)
+
+      - name: Check deployment config
+        run: |
+          cd goldblum
+          grep -q "app = " fly.toml || (echo "fly.toml missing app name" && exit 1)
+          grep -q "PORT" Dockerfile || echo "Warning: Check PORT environment variable in Dockerfile"
+
+      - name: Summary
+        run: |
+          echo "✅ All checks passed"
+          echo "📦 Ready for deployment to fly.io"
+          echo "🚀 Use 'flyctl deploy' to deploy changes"
+
+  report:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [test-local]
+
+    steps:
+      - name: Download reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+
+      - name: Print summary
+        run: |
+          echo "## E2E Test Summary"
+          echo ""
+          echo "✅ All checks completed"
+          echo ""
+          echo "### Artifacts"
+          echo "- Local test report: playwright-report-local/"
+          if [ -d "reports/playwright-report-production" ]; then
+            echo "- Production test report: playwright-report-production/"
+          fi
+          echo ""
+          echo "### Next Steps"
+          echo "1. Review test artifacts"
+          echo "2. Deploy to fly.io if all tests pass"
+          echo "3. Run production tests (scheduled daily or manual trigger)"

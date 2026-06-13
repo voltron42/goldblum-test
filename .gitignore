@@ -1,0 +1,26 @@
+node_modules/
+package-lock.json
+yarn.lock
+
+# Playwright artifacts
+test-results/
+playwright-report/
+.auth/
+
+# Logs
+*.log
+npm-debug.log*
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp
+.env.local
+.env.test

@@ -1,0 +1,22 @@
+{
+  "name": "goldblum-e2e-tests",
+  "version": "1.0.0",
+  "description": "Playwright E2E regression tests for Goldblum application",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:headed": "playwright test --headed",
+    "test:chromium": "playwright test --project=chromium",
+    "test:firefox": "playwright test --project=firefox",
+    "test:webkit": "playwright test --project=webkit",
+    "test:local": "BASE_URL=http://localhost:8080 playwright test",
+    "test:local:ui": "BASE_URL=http://localhost:8080 playwright test --ui",
+    "test:fly": "BASE_URL=https://goldblum-hello-world.fly.dev playwright test",
+    "test:fly:headed": "BASE_URL=https://goldblum-hello-world.fly.dev playwright test --headed",
+    "codegen": "playwright codegen http://localhost:8080"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0"
+  }
+}
